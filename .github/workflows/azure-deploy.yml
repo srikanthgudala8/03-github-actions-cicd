@@ -1,0 +1,52 @@
+name: Deploy to Azure Container Apps
+
+# Day 25. Deploys the image built by CI to Azure Container Apps using
+# GitHub OIDC (federated credentials), so no Azure secret or password is stored.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. sha-abc1234 or latest)"
+        required: false
+        default: latest
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-azure
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production   # add required reviewers for a manual approval gate
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update the container app image
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}"
+          az containerapp update \
+            --name "${{ vars.CONTAINERAPP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE"
+
+      - name: Smoke test
+        run: |
+          FQDN=$(az containerapp show \
+            --name "${{ vars.CONTAINERAPP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          for i in 1 2 3 4 5; do
+            curl -fsS "https://$FQDN/health" && exit 0
+            sleep 10
+          done
+          echo "health check failed" >&2
+          exit 1

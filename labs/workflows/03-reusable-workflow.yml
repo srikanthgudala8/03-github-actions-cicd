@@ -1,0 +1,36 @@
+# Day 24 exercise: reusable workflows. Save this file as
+# .github/workflows/reusable-python-test.yml, then call it from another workflow (below).
+#
+# --- the reusable workflow ---
+name: Reusable Python test
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: "3.12"
+    secrets:
+      codecov-token:
+        required: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+# --- a caller workflow (put in another file or another repo) ---
+# name: CI
+# on: [push]
+# jobs:
+#   tests:
+#     uses: your-user/your-repo/.github/workflows/reusable-python-test.yml@main
+#     with:
+#       python-version: "3.11"

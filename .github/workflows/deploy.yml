@@ -1,0 +1,74 @@
+name: Deploy
+
+# Runs after CI succeeds on main. Deploys the image built by CI to AWS ECS
+# using GitHub OIDC (no long-lived AWS keys stored in GitHub).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. sha-abc1234 or latest)"
+        required: false
+        default: latest
+
+permissions:
+  id-token: write   # needed for OIDC
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to ECS
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    # Configure required reviewers on this environment for a manual approval gate.
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+      ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.image_tag }}"
+          else
+            TAG="sha-$(echo '${{ github.event.workflow_run.head_sha }}' | cut -c1-7)"
+          fi
+          echo "image=ghcr.io/${{ github.repository }}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Render new task definition
+        id: render
+        run: |
+          aws ecs describe-task-definition --task-definition "$ECS_TASK_FAMILY" \
+            --query taskDefinition > taskdef.json
+          jq --arg IMG "${{ steps.tag.outputs.image }}" \
+            '.containerDefinitions[0].image = $IMG
+             | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' \
+            taskdef.json > new-taskdef.json
+
+      - name: Register task definition and update service
+        run: |
+          ARN=$(aws ecs register-task-definition --cli-input-json file://new-taskdef.json \
+                  --query taskDefinition.taskDefinitionArn --output text)
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --task-definition "$ARN"
+
+      - name: Wait for service to stabilise
+        run: aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"

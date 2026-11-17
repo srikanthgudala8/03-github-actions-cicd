@@ -1,0 +1,18 @@
+# Day 24 exercise: a composite action. Save as .github/actions/setup-python-app/action.yml
+# and use it in a workflow with:   - uses: ./.github/actions/setup-python-app
+name: Set up Python app
+description: Install Python, cache pip and install dev requirements
+inputs:
+  python-version:
+    description: Python version
+    default: "3.12"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: requirements-dev.txt
+    - run: pip install -r requirements-dev.txt
+      shell: bash

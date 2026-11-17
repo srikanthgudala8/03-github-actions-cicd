@@ -1,0 +1,19 @@
+# Day 19 exercise. Copy to .github/workflows/hello.yml, push, and watch it run.
+# Then change it: add a second job that `needs: greet`, print the runner OS and the commit SHA.
+name: Hello Actions
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Say hello
+        run: |
+          echo "Hello from ${{ github.actor }}"
+          echo "Repo: ${{ github.repository }}  Ref: ${{ github.ref_name }}"
+      - name: List files
+        run: ls -la
