@@ -35,7 +35,7 @@ jobs:
       ECS_SERVICE: ${{ vars.ECS_SERVICE }}
       ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Work out image tag
         id: tag
